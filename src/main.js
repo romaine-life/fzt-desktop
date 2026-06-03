@@ -11,10 +11,10 @@ const FALLBACK_YAML = `- name: "fzt-automate menu not found"
   children:
     - name: "fzt-automate repo"
       description: "where the CLI lives"
-      url: https://github.com/nelsong6/fzt-automate
+      url: https://github.com/romaine-life/fzt-automate
     - name: "this app's readme"
       description: "setup + dev notes"
-      url: https://github.com/nelsong6/fzt-desktop
+      url: https://github.com/romaine-life/fzt-desktop
 `;
 
 function setStatus(text, kind = "") {

@@ -1,6 +1,6 @@
 # fzt-desktop
 
-Native Windows desktop surface hosting [fzt-automate](https://github.com/nelsong6/fzt-automate) + ambience pixel-art, built on [Tauri 2](https://tauri.app) with WebView2. Full architecture and decision thread in [CLAUDE.md](./CLAUDE.md).
+Native Windows desktop surface hosting [fzt-automate](https://github.com/romaine-life/fzt-automate) + ambience pixel-art, built on [Tauri 2](https://tauri.app) with WebView2. Full architecture and decision thread in [CLAUDE.md](./CLAUDE.md).
 
 ## Develop
 
@@ -21,6 +21,6 @@ Produces an NSIS installer and MSI under `src-tauri/target/release/bundle/`. CI 
 
 ## Related
 
-- [fzt-browser](https://github.com/nelsong6/fzt-browser) — source of `fzt.wasm` (downloaded at build time)
-- [fzt-showcase](https://github.com/nelsong6/fzt-showcase) — reference for the CRT/DOS aesthetic
-- [ambience](https://github.com/nelsong6/ambience) — entropy source for the pixel-art layer
+- [fzt-browser](https://github.com/romaine-life/fzt-browser) — source of `fzt.wasm` (downloaded at build time)
+- [fzt-showcase](https://github.com/romaine-life/fzt-showcase) — reference for the CRT/DOS aesthetic
+- [ambience](https://github.com/romaine-life/ambience) — entropy source for the pixel-art layer

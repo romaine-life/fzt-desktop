@@ -4,7 +4,7 @@ Native Windows desktop app hosting fzt-automate and the ambience ecosystem's pix
 
 ## Why a separate repo
 
-The 2026-04-19 "pixels chat" tried to embed pixel art into fzt-automate's TUI surface via sixel escape sequences. The experiment failed because tcell + sixel + wt.exe don't cohabit: tcell's cell redraws wipe sixel pixels, and wt.exe rendered sixel rasters opaquely regardless of the `Pb=1` transparency flag. Tracked as [ambience#11/#12/#15](https://github.com/nelsong6/ambience/issues).
+The 2026-04-19 "pixels chat" tried to embed pixel art into fzt-automate's TUI surface via sixel escape sequences. The experiment failed because tcell + sixel + wt.exe don't cohabit: tcell's cell redraws wipe sixel pixels, and wt.exe rendered sixel rasters opaquely regardless of the `Pb=1` transparency flag. Tracked as [ambience#11/#12/#15](https://github.com/romaine-life/ambience/issues).
 
 Nelson's pivotal framing (2026-04-20T04:06Z):
 
@@ -43,9 +43,9 @@ Tauri 2 shell (Rust, src-tauri/)
 ## Dependencies
 
 - **[Tauri 2](https://tauri.app)** — Rust shell + WebView2 integration
-- **[fzt-browser](https://github.com/nelsong6/fzt-browser)** — consumed as release assets (`fzt.wasm` + `fzt-terminal.js` + CSS); not a Go module dep here
-- **[fzt-showcase](https://github.com/nelsong6/fzt-showcase)** — reference for CRT/DOS/phosphor CSS (to be ported in)
-- **[ambience](https://github.com/nelsong6/ambience)** — SSE entropy source; fzt-desktop subscribes and optionally publishes local keystroke events back
+- **[fzt-browser](https://github.com/romaine-life/fzt-browser)** — consumed as release assets (`fzt.wasm` + `fzt-terminal.js` + CSS); not a Go module dep here
+- **[fzt-showcase](https://github.com/romaine-life/fzt-showcase)** — reference for CRT/DOS/phosphor CSS (to be ported in)
+- **[ambience](https://github.com/romaine-life/ambience)** — SSE entropy source; fzt-desktop subscribes and optionally publishes local keystroke events back
 
 ## Status
 
