@@ -88,6 +88,82 @@ jobs:
           & $rustup run stable cargo --version
           if ($LASTEXITCODE) { throw 'Cargo is unavailable in the stable Rust toolchain' }
 
+      - name: Initialize complete VS2022 compiler and Windows SDK
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $instances = & $vswhere -all -products '*' -version '[17.0,18.0)' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json -utf8
+          if ($LASTEXITCODE) { throw 'Could not discover VS2022 installations' }
+          $vs = ($instances -join "`n") | ConvertFrom-Json | Where-Object { $_.isComplete -and $_.isLaunchable } | Sort-Object { [Version]$_.installationVersion } -Descending | Select-Object -First 1
+          if (-not $vs) { throw 'A complete VS2022 C++ installation is required' }
+          $tools = Get-ChildItem -LiteralPath "$($vs.installationPath)/VC/Tools/MSVC" -Directory | Where-Object {
+            (Test-Path -LiteralPath "$($_.FullName)/bin/Hostx64/x64/link.exe") -and
+            (Test-Path -LiteralPath "$($_.FullName)/bin/Hostx64/x64/cl.exe") -and
+            (Test-Path -LiteralPath "$($_.FullName)/lib/x64/libcmt.lib") -and
+            (Test-Path -LiteralPath "$($_.FullName)/include/vcruntime.h")
+          } | Sort-Object { [Version]$_.Name } -Descending | Select-Object -First 1
+          if (-not $tools) { throw 'VS2022 has no complete x64 MSVC toolset' }
+          $sdkRoot = (Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots').KitsRoot10
+          $sdk = Get-ChildItem -LiteralPath "$sdkRoot/Lib" -Directory | Where-Object { $_.Name -match '^10\.\d+\.\d+\.\d+$' } | Where-Object {
+            (Test-Path -LiteralPath "$($_.FullName)/um/x64/dbghelp.lib") -and
+            (Test-Path -LiteralPath "$($_.FullName)/um/x64/kernel32.lib") -and
+            (Test-Path -LiteralPath "$($_.FullName)/ucrt/x64/ucrt.lib") -and
+            (Test-Path -LiteralPath "$sdkRoot/Include/$($_.Name)/um/windows.h") -and
+            (Test-Path -LiteralPath "$sdkRoot/Include/$($_.Name)/shared/sdkddkver.h") -and
+            (Test-Path -LiteralPath "$sdkRoot/Include/$($_.Name)/ucrt/stdio.h") -and
+            (Test-Path -LiteralPath "$sdkRoot/bin/$($_.Name)/x64/rc.exe")
+          } | Sort-Object { [Version]$_.Name } -Descending | Select-Object -First 1
+          if (-not $sdk) { throw 'A complete x64 Windows SDK is required' }
+          $vcvars = Join-Path $vs.installationPath 'VC/Auxiliary/Build/vcvars64.bat'
+          if (-not (Test-Path -LiteralPath $vcvars)) { throw 'VS2022 vcvars64.bat was not found' }
+          $names = @(
+            'LIB', 'INCLUDE', 'LIBPATH', 'PATH', 'VCINSTALLDIR', 'VCToolsInstallDir', 'VCToolsVersion',
+            'VCToolsRedistDir', 'VSINSTALLDIR', 'VisualStudioVersion', 'DevEnvDir', 'VS170COMNTOOLS',
+            'WindowsSdkDir', 'WindowsSDKVersion', 'WindowsSDKLibVersion', 'WindowsSdkBinPath',
+            'WindowsSdkVerBinPath', 'UniversalCRTSdkDir', 'UCRTVersion', 'WindowsLibPath',
+            'VSCMD_VER', 'VSCMD_ARG_HOST_ARCH', 'VSCMD_ARG_TGT_ARCH')
+          # Only compiler variables leave the initialized child process. In
+          # particular, never capture or persist a dump of the job's environment.
+          $env:FZT_DESKTOP_MSVC_EXPORTS = $names -join ';'
+          $exportScript = @'
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in $env:FZT_DESKTOP_MSVC_EXPORTS.Split(';')) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if ($null -ne $value) { [Console]::WriteLine($name + '=' + $value) }
+          }
+          '@
+          $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($exportScript))
+          $exporter = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          $command = 'call "' + $vcvars + '" ' + $sdk.Name + ' -vcvars_ver=' + $tools.Name + ' >nul && "' + $exporter + '" -NoLogo -NoProfile -NonInteractive -EncodedCommand ' + $encoded
+          $compilerEnvironment = & $env:ComSpec /d /s /c $command
+          if ($LASTEXITCODE) { throw 'VS2022 compiler environment initialization failed' }
+          $selected = @{}
+          foreach ($line in $compilerEnvironment) {
+            $separator = $line.IndexOf('=')
+            if ($separator -le 0) { throw 'Unexpected compiler environment output' }
+            $name = $line.Substring(0, $separator)
+            $value = $line.Substring($separator + 1)
+            if ($names -notcontains $name -or $value.Contains("`r") -or $value.Contains("`n")) { throw 'Invalid compiler environment variable' }
+            $selected[$name] = $value
+          }
+          foreach ($name in 'LIB', 'INCLUDE', 'PATH', 'VCToolsInstallDir', 'WindowsSDKVersion') {
+            if ([string]::IsNullOrWhiteSpace($selected[$name])) { throw "Compiler environment is missing $name" }
+          }
+          if ([IO.Path]::GetFullPath($selected.VCToolsInstallDir).TrimEnd('\') -ne $tools.FullName.TrimEnd('\')) { throw 'vcvars64 selected another MSVC toolset' }
+          if ($selected.WindowsSDKVersion.TrimEnd('\') -ne $sdk.Name) { throw 'vcvars64 selected another Windows SDK' }
+          $libDirs = @($selected.LIB -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { [IO.Path]::GetFullPath($_).TrimEnd('\') })
+          foreach ($required in "$($tools.FullName)/lib/x64", "$sdkRoot/Lib/$($sdk.Name)/um/x64", "$sdkRoot/Lib/$($sdk.Name)/ucrt/x64") {
+            if ($libDirs -notcontains [IO.Path]::GetFullPath($required).TrimEnd('\')) { throw "LIB is missing $required" }
+          }
+          foreach ($name in $names) {
+            if ($selected.ContainsKey($name)) { "$name=$($selected[$name])" | Add-Content $env:GITHUB_ENV }
+          }
+          $linker = Join-Path $tools.FullName 'bin/Hostx64/x64/link.exe'
+          "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$linker" | Add-Content $env:GITHUB_ENV
+          Write-Host "Using VS2022 $($vs.installationVersion), MSVC $($tools.Name), Windows SDK $($sdk.Name)"
+          Write-Host "Rust linker: $linker"
+
       - uses: actions/cache@v4
         if: steps.version.outputs.skip != 'true'
         with:
