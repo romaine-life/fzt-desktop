@@ -1,0 +1,215 @@
+name: Build and Release
+
+# PRs and main run the same signed Windows build as a release. Dispatch this
+# workflow on main to publish the next v0.1.N after the build succeeds.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      RUSTUP_TOOLCHAIN: stable
+    defaults:
+      run:
+        shell: pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Invoke-Expression (Get-Content -Raw -LiteralPath '{0}')"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Pick version
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sha = git rev-parse HEAD
+          if ($LASTEXITCODE) { throw 'Could not resolve HEAD' }
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $tag = ''; $publish = 'false'; $skip = 'false'
+          if ($env:EVENT -eq 'workflow_dispatch') {
+            if ($env:GITHUB_REF -ne 'refs/heads/main') { throw 'Release from main only' }
+            $publish = 'true'
+            $tag = git tag --points-at HEAD -l 'v0.1.*' --sort=-v:refname | Select-Object -First 1
+            if ($LASTEXITCODE) { throw 'Could not read tags at HEAD' }
+            if (-not $tag) {
+              $last = git tag -l 'v0.1.*' --sort=-v:refname | Select-Object -First 1
+              if ($LASTEXITCODE) { throw 'Could not read release tags' }
+              $tag = if ($last) { 'v0.1.' + ([int]$last.Split('.')[2] + 1) } else { 'v0.1.0' }
+            }
+            if ($tag -notmatch '^v0\.1\.\d+$') { throw "Invalid release tag $tag" }
+            $version = $tag.Substring(1)
+            $h = @{ Authorization = "token $env:TOKEN" }
+            $api = "$env:GITHUB_SERVER_URL/api/v1/repos/$env:GITHUB_REPOSITORY"
+            $rel = Invoke-RestMethod "$api/releases/tags/$tag" -Headers $h -SkipHttpErrorCheck -StatusCodeVariable code
+            if ($code -eq 200) {
+              $portable = @($rel.assets | Where-Object name -eq 'fzt-desktop.exe')
+              $nsis = @($rel.assets | Where-Object name -like '*-setup.exe')
+              $msi = @($rel.assets | Where-Object name -like '*.msi')
+              if (-not $rel.draft -and $portable.Count -eq 1 -and $nsis.Count -eq 1 -and $msi.Count -eq 1) {
+                Write-Host "HEAD already released as $tag"
+                $skip = 'true'
+              }
+            } elseif ($code -ne 404) { throw "Release lookup returned HTTP $code" }
+          }
+          "sha=$sha", "tag=$tag", "version=$version", "publish=$publish", "skip=$skip" | Add-Content $env:GITHUB_OUTPUT
+
+      - name: Use installed stable Rust
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cargoBin = Join-Path $env:USERPROFILE '.cargo/bin'
+          if (Test-Path -LiteralPath $cargoBin) {
+            $env:PATH = "$cargoBin;$env:PATH"
+            $cargoBin | Add-Content $env:GITHUB_PATH
+          }
+          $rustup = (Get-Command rustup.exe -ErrorAction Stop).Source
+          $installed = & $rustup toolchain list
+          if ($LASTEXITCODE) { throw 'Could not list installed Rust toolchains' }
+          if (-not ($installed | Where-Object { $_ -match '^stable-x86_64-pc-windows-msvc(\s|$)' })) {
+            & $rustup toolchain install stable --profile minimal --no-self-update
+            if ($LASTEXITCODE) { throw 'Could not install the missing stable Rust toolchain' }
+          }
+          & $rustup run stable rustc --version
+          if ($LASTEXITCODE) { throw 'The stable Rust compiler is unavailable' }
+          & $rustup run stable cargo --version
+          if ($LASTEXITCODE) { throw 'Cargo is unavailable in the stable Rust toolchain' }
+
+      - uses: actions/cache@v4
+        if: steps.version.outputs.skip != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: fzt-desktop-windows-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: fzt-desktop-windows-
+
+      - uses: https://github.com/actions/setup-node@v4
+        if: steps.version.outputs.skip != 'true'
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install JS dependencies
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm ci
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Download fzt assets from Forgejo
+        if: steps.version.outputs.skip != 'true'
+        env:
+          FORGEJO_TOKEN: ${{ secrets.PIPELINE_DISPATCH_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm run fetch-fzt
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Build and sign app and installers
+        if: steps.version.outputs.skip != 'true'
+        env:
+          PFX: ${{ secrets.AT_TERMINAL_PFX }}
+          PFX_PASSWORD: ${{ secrets.AT_TERMINAL_PFX_PASSWORD }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:PFX) { throw 'AT_TERMINAL_PFX is not set' }
+          $signtool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe' | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) { throw 'Windows SDK signtool.exe was not found' }
+          # A per-job store lets Tauri sign the embedded app and both installers
+          # without putting the PFX password in a process command line or config.
+          $storeName = 'ForgejoFztDesktop-' + [Guid]::NewGuid().ToString('N')
+          $cert = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
+            [Convert]::FromBase64String($env:PFX), $env:PFX_PASSWORD,
+            [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::UserKeySet)
+          $store = [Security.Cryptography.X509Certificates.X509Store]::new($storeName, 'CurrentUser')
+          $configPath = Join-Path $env:RUNNER_TEMP ('tauri-' + [Guid]::NewGuid().ToString('N') + '.json')
+          try {
+            $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+            $store.Add($cert)
+            $config = @{
+              version = $env:VERSION
+              bundle = @{ windows = @{ signCommand = @{
+                cmd = $signtool.FullName
+                args = @('sign', '/fd', 'SHA256', '/s', $storeName, '/sha1', $cert.Thumbprint, '%1')
+              } } }
+            }
+            $config | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $configPath
+            # Cached target directories may contain installers from an older
+            # version. Remove those generated files before collecting this build.
+            foreach ($pattern in 'src-tauri/target/release/bundle/nsis/*.exe', 'src-tauri/target/release/bundle/msi/*.msi') {
+              Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | ForEach-Object { Remove-Item -LiteralPath $_.FullName }
+            }
+            npm run tauri build -- --bundles nsis,msi --config $configPath
+            if ($LASTEXITCODE) { throw "Tauri build failed: $LASTEXITCODE" }
+            $portable = Get-Item src-tauri/target/release/fzt-desktop.exe
+            # The bundler restores the standalone binary after signing each
+            # installer-specific copy. Sign the portable after both bundles.
+            & $signtool.FullName sign /fd SHA256 /s $storeName /sha1 $cert.Thumbprint $portable.FullName
+            if ($LASTEXITCODE) { throw "Portable signing failed: $LASTEXITCODE" }
+            $nsis = @(Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe)
+            $msi = @(Get-ChildItem src-tauri/target/release/bundle/msi/*.msi)
+            if ($nsis.Count -ne 1 -or $msi.Count -ne 1) { throw 'Expected one NSIS installer and one MSI' }
+            foreach ($asset in @($portable) + $nsis + $msi) {
+              $signature = Get-AuthenticodeSignature -LiteralPath $asset.FullName
+              if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $cert.Thumbprint) {
+                throw "Signature verification failed for $($asset.Name): $($signature.Status)"
+              }
+              Write-Host "$($asset.Name): signed by $($signature.SignerCertificate.Subject)"
+            }
+          } finally {
+            if (Test-Path -LiteralPath $configPath) { Remove-Item -LiteralPath $configPath }
+            if ($store.IsOpen) { $store.Remove($cert) }
+            $store.Close()
+            $cert.Dispose()
+          }
+
+      - name: Publish Forgejo release
+        if: steps.version.outputs.publish == 'true' && steps.version.outputs.skip != 'true'
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          SHA: ${{ steps.version.outputs.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $api = "$env:GITHUB_SERVER_URL/api/v1/repos/$env:GITHUB_REPOSITORY"
+          $h = @{ Authorization = "token $env:TOKEN" }
+          # Reserve the tag before staging a draft; a Forgejo draft has no tag.
+          $tagged = Invoke-RestMethod "$api/tags/$env:TAG" -Headers $h -SkipHttpErrorCheck -StatusCodeVariable code
+          if ($code -eq 404) {
+            Invoke-RestMethod -Method Post "$api/tags" -Headers $h -ContentType application/json -Body (@{ tag_name=$env:TAG; target=$env:SHA } | ConvertTo-Json) | Out-Null
+          } elseif ($code -ne 200 -or $tagged.commit.sha -ne $env:SHA) { throw 'Release tag lookup failed or names another commit' }
+          $release = Invoke-RestMethod "$api/releases/tags/$env:TAG" -Headers $h -SkipHttpErrorCheck -StatusCodeVariable code
+          if ($code -eq 404) {
+            $summary = git log --oneline -1
+            if ($LASTEXITCODE) { throw 'Could not read the release commit' }
+            $body = @{ tag_name=$env:TAG; target_commitish=$env:SHA; name=$env:TAG; draft=$true; body="Signed Windows desktop release. $summary" } | ConvertTo-Json
+            $release = Invoke-RestMethod -Method Post "$api/releases" -Headers $h -ContentType application/json -Body $body
+          } elseif ($code -ne 200) { throw "Release lookup returned HTTP $code" }
+          $assets = @(Get-Item src-tauri/target/release/fzt-desktop.exe) + @(Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe) + @(Get-ChildItem src-tauri/target/release/bundle/msi/*.msi)
+          foreach ($asset in $assets) {
+            if ($release.assets.name -contains $asset.Name) { continue }
+            $name = [Uri]::EscapeDataString($asset.Name)
+            Invoke-RestMethod -Method Post "$api/releases/$($release.id)/assets?name=$name" -Headers $h -Form @{ attachment=$asset } | Out-Null
+          }
+          $release = Invoke-RestMethod "$api/releases/$($release.id)" -Headers $h
+          foreach ($asset in $assets) {
+            if ($release.assets.name -notcontains $asset.Name) { throw "Missing release asset $($asset.Name)" }
+          }
+          Invoke-RestMethod -Method Patch "$api/releases/$($release.id)" -Headers $h -ContentType application/json -Body '{"draft":false}' | Out-Null
+          Write-Host "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/releases/tag/$env:TAG"

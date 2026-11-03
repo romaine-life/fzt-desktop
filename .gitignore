@@ -24,7 +24,7 @@ dist-ssr
 *.sw?
 
 # fzt assets downloaded from fzt-browser release via `npm run fetch-fzt`
-# (dev) or build.yml's gh release download step (CI). Not committed —
+# (dev) or the Forgejo build workflow (CI). Not committed —
 # pinning a binary copy would drift from the upstream renderer.
 src/fzt.wasm
 src/fzt-terminal.js
