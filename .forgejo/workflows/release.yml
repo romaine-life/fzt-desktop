@@ -29,6 +29,8 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: romaine-life/pipeline-templates/actions/home-cache@main
+
       - name: Pick version
         id: version
         env:
@@ -174,7 +176,7 @@ jobs:
           key: fzt-desktop-windows-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: fzt-desktop-windows-
 
-      - uses: https://github.com/actions/setup-node@v4
+      - uses: actions/setup-node@v4
         if: steps.version.outputs.skip != 'true'
         with:
           node-version: '22'
@@ -289,3 +291,10 @@ jobs:
           }
           Invoke-RestMethod -Method Patch "$api/releases/$($release.id)" -Headers $h -ContentType application/json -Body '{"draft":false}' | Out-Null
           Write-Host "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/releases/tag/$env:TAG"
+
+  # The fetch check reads only the repo, and runs where Python is (FORGEJO-28).
+  fetches:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: romaine-life/pipeline-templates/actions/check-fetches@main
