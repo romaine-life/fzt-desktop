@@ -28,7 +28,7 @@ Forgejo CI builds and signs the app and both installers on pull requests and mai
 After main's build passes, publish the next `v0.1.N` release on Forgejo:
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri 'https://forgejo.romaine.life/api/v1/repos/romaine-life/fzt-desktop/actions/workflows/release.yml/dispatches' -Headers @{ Authorization = "token $env:FORGEJO_TOKEN" } -ContentType application/json -Body '{"ref":"main"}'
+Invoke-RestMethod -Method Post -Uri 'https://forgejo.romaine.life/api/v1/repos/romaine-life/fzt-desktop/actions/workflows/ci.yml/dispatches' -Headers @{ Authorization = "token $env:FORGEJO_TOKEN" } -ContentType application/json -Body '{"ref":"main"}'
 ```
 
 The workflow publishes the signed NSIS installer, MSI and `fzt-desktop.exe` after
