@@ -291,6 +291,9 @@ jobs:
           }
           Invoke-RestMethod -Method Patch "$api/releases/$($release.id)" -Headers $h -ContentType application/json -Body '{"draft":false}' | Out-Null
           Write-Host "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/releases/tag/$env:TAG"
+      - name: Delete the files of older releases
+        if: steps.version.outputs.publish == 'true' && steps.version.outputs.skip != 'true'
+        uses: romaine-life/pipeline-templates/actions/prune-releases@main
 
   # The fetch check reads only the repo, and runs where Python is (FORGEJO-28).
   fetches:
