@@ -46,8 +46,6 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: windows-latest
     timeout-minutes: 45
-    env:
-      RUSTUP_TOOLCHAIN: stable
     defaults:
       run:
         shell: pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Invoke-Expression (Get-Content -Raw -LiteralPath '{0}')"
@@ -96,26 +94,8 @@ jobs:
           }
           "sha=$sha", "tag=$tag", "version=$version", "publish=$publish", "skip=$skip" | Add-Content $env:GITHUB_OUTPUT
 
-      - name: Use installed stable Rust
+      - uses: romaine-life/pipeline-templates/actions/rust-toolchain@main
         if: steps.version.outputs.skip != 'true'
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $cargoBin = Join-Path $env:USERPROFILE '.cargo/bin'
-          if (Test-Path -LiteralPath $cargoBin) {
-            $env:PATH = "$cargoBin;$env:PATH"
-            $cargoBin | Add-Content $env:GITHUB_PATH
-          }
-          $rustup = (Get-Command rustup.exe -ErrorAction Stop).Source
-          $installed = & $rustup toolchain list
-          if ($LASTEXITCODE) { throw 'Could not list installed Rust toolchains' }
-          if (-not ($installed | Where-Object { $_ -match '^stable-x86_64-pc-windows-msvc(\s|$)' })) {
-            & $rustup toolchain install stable --profile minimal --no-self-update
-            if ($LASTEXITCODE) { throw 'Could not install the missing stable Rust toolchain' }
-          }
-          & $rustup run stable rustc --version
-          if ($LASTEXITCODE) { throw 'The stable Rust compiler is unavailable' }
-          & $rustup run stable cargo --version
-          if ($LASTEXITCODE) { throw 'Cargo is unavailable in the stable Rust toolchain' }
 
       - name: Initialize complete VS2022 compiler and Windows SDK
         if: steps.version.outputs.skip != 'true'
@@ -203,7 +183,7 @@ jobs:
           key: fzt-desktop-windows-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: fzt-desktop-windows-
 
-      - uses: actions/setup-node@v4
+      - uses: romaine-life/pipeline-templates/actions/setup-node@main
         if: steps.version.outputs.skip != 'true'
         with:
           node-version: '22'
