@@ -51,54 +51,55 @@ jobs:
         shell: pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Invoke-Expression (Get-Content -Raw -LiteralPath '{0}')"
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: romaine-life/pipeline-templates/actions/home-cache@main
 
-      - name: Pick version
+      - name: Release from main only
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+        run: throw 'Release from main only'
+
+      # A dispatch of main is released as v0.1.N, a commit already numbered keeping its
+      # number; any other run is named after the number it would take.
+      - name: Number the build
         id: version
+        uses: romaine-life/pipeline-templates/actions/release-version@main
+        with:
+          prefix: v0.1
+          publish: ${{ github.event_name == 'workflow_dispatch' }}
+
+      # The app's version is the build's without its v. An MSI version is numbers only,
+      # so the MSI of an unreleased build (0.1.N-pr12.345) is 0.1.N.
+      - name: Find the release
+        id: release
         env:
-          EVENT: ${{ github.event_name }}
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $sha = git rev-parse HEAD
-          if ($LASTEXITCODE) { throw 'Could not resolve HEAD' }
-          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
-          $tag = ''; $publish = 'false'; $skip = 'false'
-          if ($env:EVENT -eq 'workflow_dispatch') {
-            if ($env:GITHUB_REF -ne 'refs/heads/main') { throw 'Release from main only' }
-            $publish = 'true'
-            $tag = git tag --points-at HEAD -l 'v0.1.*' --sort=-v:refname | Select-Object -First 1
-            if ($LASTEXITCODE) { throw 'Could not read tags at HEAD' }
-            if (-not $tag) {
-              $last = git tag -l 'v0.1.*' --sort=-v:refname | Select-Object -First 1
-              if ($LASTEXITCODE) { throw 'Could not read release tags' }
-              $tag = if ($last) { 'v0.1.' + ([int]$last.Split('.')[2] + 1) } else { 'v0.1.0' }
-            }
-            if ($tag -notmatch '^v0\.1\.\d+$') { throw "Invalid release tag $tag" }
-            $version = $tag.Substring(1)
+          $app = $env:VERSION.Substring(1)
+          $skip = 'false'
+          if ($env:TAG) {
             $h = @{ Authorization = "token $env:TOKEN" }
             $api = "$env:GITHUB_SERVER_URL/api/v1/repos/$env:GITHUB_REPOSITORY"
-            $rel = Invoke-RestMethod "$api/releases/tags/$tag" -Headers $h -SkipHttpErrorCheck -StatusCodeVariable code
+            $rel = Invoke-RestMethod "$api/releases/tags/$env:TAG" -Headers $h -SkipHttpErrorCheck -StatusCodeVariable code
             if ($code -eq 200) {
               $portable = @($rel.assets | Where-Object name -eq 'fzt-desktop.exe')
               $nsis = @($rel.assets | Where-Object name -like '*-setup.exe')
               $msi = @($rel.assets | Where-Object name -like '*.msi')
               if (-not $rel.draft -and $portable.Count -eq 1 -and $nsis.Count -eq 1 -and $msi.Count -eq 1) {
-                Write-Host "HEAD already released as $tag"
+                Write-Host "HEAD already released as $env:TAG"
                 $skip = 'true'
               }
             } elseif ($code -ne 404) { throw "Release lookup returned HTTP $code" }
           }
-          "sha=$sha", "tag=$tag", "version=$version", "publish=$publish", "skip=$skip" | Add-Content $env:GITHUB_OUTPUT
+          "app=$app", "msi=$(($app -split '-')[0])", "skip=$skip" | Add-Content $env:GITHUB_OUTPUT
 
       - uses: romaine-life/pipeline-templates/actions/rust-toolchain@main
-        if: steps.version.outputs.skip != 'true'
+        if: steps.release.outputs.skip != 'true'
 
       - name: Initialize complete VS2022 compiler and Windows SDK
-        if: steps.version.outputs.skip != 'true'
+        if: steps.release.outputs.skip != 'true'
         run: |
           $ErrorActionPreference = 'Stop'
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
@@ -174,7 +175,7 @@ jobs:
           Write-Host "Rust linker: $linker"
 
       - uses: actions/cache@v4
-        if: steps.version.outputs.skip != 'true'
+        if: steps.release.outputs.skip != 'true'
         with:
           path: |
             ~/.cargo/registry
@@ -184,20 +185,20 @@ jobs:
           restore-keys: fzt-desktop-windows-
 
       - uses: romaine-life/pipeline-templates/actions/setup-node@main
-        if: steps.version.outputs.skip != 'true'
+        if: steps.release.outputs.skip != 'true'
         with:
           node-version: '22'
           cache: npm
 
       - name: Install JS dependencies
-        if: steps.version.outputs.skip != 'true'
+        if: steps.release.outputs.skip != 'true'
         run: |
           $ErrorActionPreference = 'Stop'
           npm ci
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Download fzt assets from Forgejo
-        if: steps.version.outputs.skip != 'true'
+        if: steps.release.outputs.skip != 'true'
         env:
           FORGEJO_TOKEN: ${{ secrets.PIPELINE_DISPATCH_TOKEN }}
         run: |
@@ -206,11 +207,12 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Build and sign app and installers
-        if: steps.version.outputs.skip != 'true'
+        if: steps.release.outputs.skip != 'true'
         env:
           PFX: ${{ secrets.AT_TERMINAL_PFX }}
           PFX_PASSWORD: ${{ secrets.AT_TERMINAL_PFX_PASSWORD }}
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ steps.release.outputs.app }}
+          MSI_VERSION: ${{ steps.release.outputs.msi }}
         run: |
           $ErrorActionPreference = 'Stop'
           if (-not $env:PFX) { throw 'AT_TERMINAL_PFX is not set' }
@@ -229,10 +231,13 @@ jobs:
             $store.Add($cert)
             $config = @{
               version = $env:VERSION
-              bundle = @{ windows = @{ signCommand = @{
-                cmd = $signtool.FullName
-                args = @('sign', '/fd', 'SHA256', '/s', $storeName, '/sha1', $cert.Thumbprint, '%1')
-              } } }
+              bundle = @{ windows = @{
+                wix = @{ version = $env:MSI_VERSION }
+                signCommand = @{
+                  cmd = $signtool.FullName
+                  args = @('sign', '/fd', 'SHA256', '/s', $storeName, '/sha1', $cert.Thumbprint, '%1')
+                }
+              } }
             }
             $config | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $configPath
             # Cached target directories may contain installers from an older
@@ -265,20 +270,15 @@ jobs:
           }
 
       - name: Publish Forgejo release
-        if: steps.version.outputs.publish == 'true' && steps.version.outputs.skip != 'true'
+        if: steps.version.outputs.tag != '' && steps.release.outputs.skip != 'true'
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
-          SHA: ${{ steps.version.outputs.sha }}
+          SHA: ${{ github.sha }}
         run: |
           $ErrorActionPreference = 'Stop'
           $api = "$env:GITHUB_SERVER_URL/api/v1/repos/$env:GITHUB_REPOSITORY"
           $h = @{ Authorization = "token $env:TOKEN" }
-          # Reserve the tag before staging a draft; a Forgejo draft has no tag.
-          $tagged = Invoke-RestMethod "$api/tags/$env:TAG" -Headers $h -SkipHttpErrorCheck -StatusCodeVariable code
-          if ($code -eq 404) {
-            Invoke-RestMethod -Method Post "$api/tags" -Headers $h -ContentType application/json -Body (@{ tag_name=$env:TAG; target=$env:SHA } | ConvertTo-Json) | Out-Null
-          } elseif ($code -ne 200 -or $tagged.commit.sha -ne $env:SHA) { throw 'Release tag lookup failed or names another commit' }
           $release = Invoke-RestMethod "$api/releases/tags/$env:TAG" -Headers $h -SkipHttpErrorCheck -StatusCodeVariable code
           if ($code -eq 404) {
             $summary = git log --oneline -1
@@ -299,5 +299,5 @@ jobs:
           Invoke-RestMethod -Method Patch "$api/releases/$($release.id)" -Headers $h -ContentType application/json -Body '{"draft":false}' | Out-Null
           Write-Host "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/releases/tag/$env:TAG"
       - name: Delete the files of older releases
-        if: steps.version.outputs.publish == 'true' && steps.version.outputs.skip != 'true'
+        if: steps.version.outputs.tag != '' && steps.release.outputs.skip != 'true'
         uses: romaine-life/pipeline-templates/actions/prune-releases@main
