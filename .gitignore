@@ -23,10 +23,13 @@ dist-ssr
 *.sln
 *.sw?
 
-# fzt assets downloaded from fzt-browser release via `npm run fetch-fzt`
-# (dev) or the Forgejo build workflow (CI). Not committed —
-# pinning a binary copy would drift from the upstream renderer.
+# fzt assets from fzt-browser's releases, never committed: `npm run fetch-fzt` takes the
+# newest (dev); a release build stages the ones dependencies.lock pins, which each
+# fzt-browser release moves forward by take-up PR.
 src/fzt.wasm
 src/fzt-terminal.js
 src/fzt-terminal.css
 src/fzt-web.js
+
+# Cargo workspace output
+/target/

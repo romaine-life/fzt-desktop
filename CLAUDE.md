@@ -62,9 +62,10 @@ npm run tauri dev    # first build compiles ~200 Rust crates (~2 min); increment
 ```
 
 Optional: set `FZT_DESKTOP_PWSH_INIT` to a `.ps1` path (e.g. your at-commands.ps1) before launching, so selections routed through `run_command` can invoke user-defined PS functions.
-`fetch-fzt` uses `FORGEJO_TOKEN` to read the release. Forgejo's `ci.yml`
-workflow runs signed Windows build checks on PRs and main; a manual dispatch on
-main publishes the next `v0.1.N` and its signed installers and portable executable.
+`fetch-fzt` uses `FORGEJO_TOKEN` to read the release. CI comes from
+pipeline-templates' `rust` and `release` suites (its `fleet.json` entry); a merge to
+main that changes the app publishes the next `v0.1.N` with its signed portable
+executable, built with the fzt-browser assets `dependencies.lock` pins.
 
 ## Related session
 

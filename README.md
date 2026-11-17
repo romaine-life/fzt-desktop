@@ -20,19 +20,16 @@ its WASM, JavaScript and CSS assets from Forgejo.
 npm run tauri build
 ```
 
-Produces an NSIS installer and MSI under `src-tauri/target/release/bundle/`.
-Forgejo CI builds and signs the app and both installers on pull requests and main.
+Produces an NSIS installer and MSI under `target/release/bundle/`.
 
-## Release
+## CI and releases
 
-After main's build passes, publish the next `v0.1.N` release on Forgejo:
-
-```powershell
-Invoke-RestMethod -Method Post -Uri 'https://forgejo.romaine.life/api/v1/repos/romaine-life/fzt-desktop/actions/workflows/ci.yml/dispatches' -Headers @{ Authorization = "token $env:FORGEJO_TOKEN" } -ContentType application/json -Body '{"ref":"main"}'
-```
-
-The workflow publishes the signed NSIS installer, MSI and `fzt-desktop.exe` after
-the build succeeds. Installer filenames keep Tauri's existing naming scheme.
+Forgejo runs CI from pipeline-templates' `rust` and `release` suites, with no workflow
+here. A pull request runs rustfmt, clippy and the tests on Windows, and a release build
+when packaging inputs change. A merge to main that changes the app publishes the next
+`v0.1.N` with its signed `fzt-desktop` executable. The fzt-browser assets a release
+embeds are the ones `dependencies.lock` pins; each fzt-browser release proposes moving
+them forward as a take-up PR.
 
 ## Related
 

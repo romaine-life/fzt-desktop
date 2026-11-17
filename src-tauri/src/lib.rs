@@ -40,7 +40,11 @@ impl PwshSession {
         let mut child = cmd.spawn()?;
         let stdin = child.stdin.take().expect("stdin pipe");
         let stdout = BufReader::new(child.stdout.take().expect("stdout pipe"));
-        let mut session = Self { _child: child, stdin, stdout };
+        let mut session = Self {
+            _child: child,
+            stdin,
+            stdout,
+        };
 
         // Optional init script — dot-source at spawn so at-commands or
         // other user functions are in scope for every run_command call.
@@ -51,11 +55,7 @@ impl PwshSession {
                 let escaped = trimmed.replace('\'', "''");
                 // Consume output with *>&1; *>$null, then emit sentinel so
                 // the drain below knows when init is done.
-                writeln!(
-                    session.stdin,
-                    ". '{escaped}' *>$null; '{SENTINEL}'"
-                )
-                .ok();
+                writeln!(session.stdin, ". '{escaped}' *>$null; '{SENTINEL}'").ok();
                 session.stdin.flush().ok();
                 // Drain init output up to the sentinel.
                 loop {
@@ -82,7 +82,9 @@ impl PwshSession {
         // on the success stream, reaches our pipe reliably.
         writeln!(self.stdin, "& {{ {cmd} }} *>&1; '{SENTINEL}'")
             .map_err(|e| format!("write stdin: {e}"))?;
-        self.stdin.flush().map_err(|e| format!("flush stdin: {e}"))?;
+        self.stdin
+            .flush()
+            .map_err(|e| format!("flush stdin: {e}"))?;
 
         let mut out = String::new();
         loop {

@@ -1,0 +1,5 @@
+# The Tauri app's crate lives in src-tauri/, where Tauri expects it; this workspace puts its
+# Cargo.lock and target/ at the root, where the rust and release suites build.
+[workspace]
+members = ["src-tauri"]
+resolver = "2"
