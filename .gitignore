@@ -23,9 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 
-# fzt assets from fzt-browser's releases, never committed: `npm run fetch-fzt` takes the
-# newest (dev); a release build stages the ones dependencies.lock pins, which each
-# fzt-browser release moves forward by take-up PR.
+# fzt assets from fzt-browser's npm package, never committed: `npm install` copies them in.
 src/fzt.wasm
 src/fzt-terminal.js
 src/fzt-terminal.css

@@ -43,7 +43,7 @@ Tauri 2 shell (Rust, src-tauri/)
 ## Dependencies
 
 - **[Tauri 2](https://tauri.app)** — Rust shell + WebView2 integration
-- **[fzt-browser](https://github.com/romaine-life/fzt-browser)** — consumed as release assets (`fzt.wasm` + `fzt-terminal.js` + CSS); not a Go module dep here
+- **[fzt-browser](https://github.com/romaine-life/fzt-browser)** — consumed as its npm package `@romaine-life/fzt-browser` (`fzt.wasm` + `fzt-terminal.js` + CSS, copied into `src/` on install); not a Go module dep here
 - **[fzt-showcase](https://github.com/romaine-life/fzt-showcase)** — reference for CRT/DOS/phosphor CSS (to be ported in)
 - **[ambience](https://github.com/romaine-life/ambience)** — SSE entropy source; fzt-desktop subscribes and optionally publishes local keystroke events back
 
@@ -56,16 +56,15 @@ First working demo as of 2026-04-20. fzt-automate's menu (`~/.fzt-automate/menu-
 ## Local dev setup
 
 ```sh
-npm install
-npm run fetch-fzt    # pulls fzt.wasm + fzt-terminal.{js,css} + fzt-web.js from the latest Forgejo fzt-browser release
+npm install          # also copies fzt.wasm + fzt-terminal.{js,css} + fzt-web.js from @romaine-life/fzt-browser into src/
 npm run tauri dev    # first build compiles ~200 Rust crates (~2 min); incremental is instant
 ```
 
 Optional: set `FZT_DESKTOP_PWSH_INIT` to a `.ps1` path (e.g. your at-commands.ps1) before launching, so selections routed through `run_command` can invoke user-defined PS functions.
-`fetch-fzt` uses `FORGEJO_TOKEN` to read the release. CI comes from
+`npm install` reads the package with `FORGEJO_PACKAGES_TOKEN`. CI comes from
 pipeline-templates' `rust` and `release` suites (its `fleet.json` entry); a merge to
 main that changes the app publishes the next `v0.1.N` with its signed portable
-executable, built with the fzt-browser assets `dependencies.lock` pins.
+executable, built with the fzt-browser package `package.json` pins (pipeline-templates `suites/README.md`, npm packages on Forgejo).
 
 ## Related session
 

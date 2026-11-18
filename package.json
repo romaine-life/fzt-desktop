@@ -5,9 +5,12 @@
   "type": "module",
   "scripts": {
     "tauri": "tauri",
-    "fetch-fzt": "node --input-type=module -e \"import {writeFile} from 'node:fs/promises'; const token=process.env.FORGEJO_TOKEN; if(!token) throw Error('Set FORGEJO_TOKEN to read Forgejo releases'); const headers={Authorization:'token '+token}; const response=await fetch('https://forgejo.romaine.life/api/v1/repos/romaine-life/fzt-browser/releases/latest',{headers}); if(!response.ok) throw Error('Release lookup: HTTP '+response.status); const release=await response.json(); for(const name of ['fzt.wasm','fzt-terminal.js','fzt-terminal.css','fzt-web.js']) { const asset=release.assets.find(a=>a.name===name); if(!asset) throw Error('Release '+release.tag_name+' is missing '+name); const download=await fetch(asset.browser_download_url,{headers}); if(!download.ok) throw Error(name+': HTTP '+download.status); const bytes=Buffer.from(await download.arrayBuffer()); if(bytes.length!==asset.size) throw Error(name+': wrong download size'); await writeFile('src/'+name,bytes); } console.log('Downloaded fzt-browser '+release.tag_name);\""
+    "postinstall": "node -e \"const fs=require('fs'),path=require('path');const dist=path.join(path.dirname(require.resolve('@romaine-life/fzt-browser/package.json')),'dist');for(const name of ['fzt.wasm','fzt-terminal.js','fzt-terminal.css','fzt-web.js'])fs.copyFileSync(path.join(dist,name),path.join('src',name));\""
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
+  },
+  "dependencies": {
+    "@romaine-life/fzt-browser": "0.1.117"
   }
 }

@@ -6,13 +6,14 @@ Native Windows desktop surface hosting [fzt-automate](https://github.com/romaine
 
 ```sh
 npm install
-npm run fetch-fzt
 npm run tauri dev
 ```
 
 First `tauri dev` compiles Tauri's Rust deps — expect a few minutes on a cold build.
-Set `FORGEJO_TOKEN` to a token that can read the fzt-browser release before fetching
-its WASM, JavaScript and CSS assets from Forgejo.
+`npm install` takes fzt-browser's WASM, JavaScript and CSS from its npm package
+`@romaine-life/fzt-browser` on Forgejo and copies them into `src/`; it reads the package
+with the token in `FORGEJO_PACKAGES_TOKEN` (on a home PC, the one
+`romaine-auth home-token --role forgejo-packages` writes).
 
 ## Build
 
@@ -28,11 +29,11 @@ Forgejo runs CI from pipeline-templates' `rust` and `release` suites, with no wo
 here. A pull request runs rustfmt, clippy and the tests on Windows, and a release build
 when packaging inputs change. A merge to main that changes the app publishes the next
 `v0.1.N` with its signed `fzt-desktop` executable. The fzt-browser assets a release
-embeds are the ones `dependencies.lock` pins; each fzt-browser release proposes moving
-them forward as a take-up PR.
+embeds come from the version of `@romaine-life/fzt-browser` that `package.json` pins; each
+fzt-browser release proposes it as a take-up PR.
 
 ## Related
 
-- [fzt-browser](https://github.com/romaine-life/fzt-browser) — source of `fzt.wasm` (downloaded at build time)
+- [fzt-browser](https://github.com/romaine-life/fzt-browser) — source of `fzt.wasm` (its npm package)
 - [fzt-showcase](https://github.com/romaine-life/fzt-showcase) — reference for the CRT/DOS aesthetic
 - [ambience](https://github.com/romaine-life/ambience) — entropy source for the pixel-art layer
