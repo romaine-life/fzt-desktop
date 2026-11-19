@@ -3,3 +3,7 @@
 [workspace]
 members = ["src-tauri"]
 resolver = "2"
+
+# The release serves the embedded frontend, as `tauri build` would.
+[workspace.metadata.pipeline-templates.targets.x86_64-pc-windows-msvc]
+features = ["custom-protocol"]
