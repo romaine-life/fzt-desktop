@@ -11,6 +11,6 @@
     "@tauri-apps/cli": "^2"
   },
   "dependencies": {
-    "@romaine-life/fzt-browser": "0.1.145"
+    "@romaine-life/fzt-browser": "0.1.147"
   }
 }
